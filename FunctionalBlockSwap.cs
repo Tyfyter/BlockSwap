@@ -2,12 +2,12 @@ using Terraria;
 using Terraria.DataStructures;
 using Terraria.GameContent.Achievements;
 using Terraria.ModLoader;
-using static BlockSwap.ToolType;
+using static FunctionalBlockSwap.ToolType;
 using Hook = On.Terraria;
 using Terraria.ID;
 
-namespace BlockSwap {
-    public class BlockSwap : Mod {
+namespace FunctionalBlockSwap {
+    public class FunctionalBlockSwap : Mod {
         public static ushort wallID = 0;
 
         public override void Load() {

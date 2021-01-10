@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.28307.1209
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BlockSwap", "BlockSwap.csproj", "{EB3B62AB-A7DC-4FAB-A69B-8951B9C65D83}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "FunctionalBlockSwap", "FunctionalBlockSwap.csproj", "{EB3B62AB-A7DC-4FAB-A69B-8951B9C65D83}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
