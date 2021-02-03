@@ -18,10 +18,15 @@ namespace FunctionalBlockSwap {
         }
 
         private void PlaceThing(Hook.Player.orig_PlaceThing orig, Player self) {
+            int createTile = self.HeldItem.createTile;
+            if(createTile==TileID.Torches||(TileLoader.GetTile(createTile)?.torch??false)) {
+                orig(self);
+                return;
+            }
             Tile tile = Main.tile[Player.tileTargetX,Player.tileTargetY];
             Tile tile2 = Main.tile[Player.tileTargetX, Player.tileTargetY+1];
             ushort wall = tile2.wall;
-            if(PlaceThingChecks(self)&&self.HeldItem.createTile>-1&&self.HeldItem.createTile!=tile.type&&tile.active()) {
+            if(PlaceThingChecks(self)&&createTile>-1&&createTile!=tile.type&&TileCompatCheck(tile.type, createTile)&&tile.active()) {
                 int selected = self.selectedItem;
                 if(Main.tileHammer[tile.type]) {
                     bool breakTile = Main.tileNoFail[tile.type];
@@ -41,7 +46,7 @@ namespace FunctionalBlockSwap {
                 }else if(!(Main.tileAxe[tile.type] || Main.tileHammer[tile.type]) && !Main.tileContainer[tile.type]) {
                     self.selectedItem = GetBestToolSlot(self, out int power, toolType: Pickaxe);
                     self.PickTile(Player.tileTargetX, Player.tileTargetY, power);
-                    if(self.hitTile.data[tile.type].damage>0) {
+                    if(self.hitTile.data.Length <= tile.type||self.hitTile.data[tile.type].damage>0) {
 		                AchievementsHelper.CurrentlyMining = true;
 		                self.hitTile.Clear(tile.type);
 			            WorldGen.KillTile(Player.tileTargetX, Player.tileTargetY);
@@ -75,11 +80,17 @@ namespace FunctionalBlockSwap {
         public static bool PlaceThingChecks(Player player) {
             int tileBoost = player.HeldItem.tileBoost;
             return !player.noBuilding&&
-                (player.itemTime == 0 && player.itemAnimation > 0 && player.controlUseItem)&&
-                (player.Left.X / 16f - Player.tileRangeX - tileBoost - player.blockRange <= Player.tileTargetX &&
-                (player.Right.X) / 16f + Player.tileRangeX + tileBoost - 1f + player.blockRange >= Player.tileTargetX &&
+                (player.itemTime == 0 && player.itemAnimation > 0 && player.controlUseItem)&&(
+                player.Left.X / 16f - Player.tileRangeX - tileBoost - player.blockRange <= Player.tileTargetX &&
+                player.Right.X / 16f + Player.tileRangeX + tileBoost - 1f + player.blockRange >= Player.tileTargetX &&
                 player.Top.Y / 16f - Player.tileRangeY - tileBoost - player.blockRange <= Player.tileTargetY &&
-                (player.Bottom.Y) / 16f + Player.tileRangeY + tileBoost - 2f + player.blockRange >= Player.tileTargetY);
+                player.Bottom.Y / 16f + Player.tileRangeY + tileBoost - 2f + player.blockRange >= Player.tileTargetY);
+        }
+        public static bool TileCompatCheck(int currentTile, int createTile) {
+            return !((TileID.Sets.Grass[currentTile]&&createTile==TileID.Dirt)||
+                (TileID.Sets.GrassSpecial[currentTile]&&createTile==TileID.Mud)||
+                (TileID.Sets.Grass[createTile]&&!TileID.Sets.Grass[currentTile]||
+                TileID.Sets.GrassSpecial[createTile]&&!TileID.Sets.GrassSpecial[currentTile]));
         }
         public static int GetBestToolSlot(Player player, out int power, ToolType toolType = Pickaxe) {
             int slot = player.selectedItem;

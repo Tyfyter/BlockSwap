@@ -2,13 +2,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <Import Project="..\..\references\tModLoader.targets" />
   <PropertyGroup>
-    <AssemblyName>BlockSwap</AssemblyName>
+    <AssemblyName>FunctionalBlockSwap</AssemblyName>
     <TargetFramework>net45</TargetFramework>
     <PlatformTarget>x86</PlatformTarget>
     <LangVersion>7.3</LangVersion>
+    <Product>FunctionalBlockSwap</Product>
+    <Company>FunctionalBlockSwap</Company>
+    <PackageId>FunctionalBlockSwap</PackageId>
+    <Authors>Tyfyter</Authors>
+    <RepositoryUrl>https://github.com/Tyfyter/BlockSwap</RepositoryUrl>
+    <RootNamespace>FunctionalBlockSwap</RootNamespace>
   </PropertyGroup>
   <Target Name="BuildMod" AfterTargets="Build">
-    <Exec Command="&quot;$(tMLBuildServerPath)&quot; -build $(ProjectDir) -eac $(TargetPath) -define &quot;$(DefineConstants)&quot; -unsafe $(AllowUnsafeBlocks)" />
+    <Exec Command="&quot;$(tMLBuildServerPath)&quot; -tmlsavedirectory &quot;C:\Users\Tyfyter\Documents\My Games\Terraria\OriginTML&quot; -build $(ProjectDir) -eac $(TargetPath) -define &quot;$(DefineConstants)&quot; -unsafe $(AllowUnsafeBlocks)" />
   </Target>
   <ItemGroup>
     <PackageReference Include="tModLoader.CodeAssist" Version="0.1.*" />
