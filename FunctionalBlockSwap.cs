@@ -5,6 +5,7 @@ using Terraria.ModLoader;
 using static FunctionalBlockSwap.ToolType;
 using Hook = On.Terraria;
 using Terraria.ID;
+using Terraria.ObjectData;
 
 namespace FunctionalBlockSwap {
     public class FunctionalBlockSwap : Mod {
@@ -26,7 +27,7 @@ namespace FunctionalBlockSwap {
             Tile tile = Main.tile[Player.tileTargetX,Player.tileTargetY];
             Tile tile2 = Main.tile[Player.tileTargetX, Player.tileTargetY+1];
             ushort wall = tile2.wall;
-            if(PlaceThingChecks(self)&&createTile>-1&&createTile!=tile.type&&TileCompatCheck(tile.type, createTile)&&tile.active()) {
+            if(PlaceThingChecks(self)&&createTile>-1&&TileCompatCheck(tile.type, tile.frameX, createTile, self.HeldItem.placeStyle)&&tile.active()) {
                 int selected = self.selectedItem;
                 if(Main.tileHammer[tile.type]) {
                     bool breakTile = Main.tileNoFail[tile.type];
@@ -43,23 +44,25 @@ namespace FunctionalBlockSwap {
                             NetMessage.SendData(MessageID.TileChange, -1, -1, null, 0, Player.tileTargetX, Player.tileTargetY);
                         }
                     }
-                }else if(!(Main.tileAxe[tile.type] || Main.tileHammer[tile.type]) && !Main.tileContainer[tile.type]) {
-                    self.selectedItem = GetBestToolSlot(self, out int power, toolType: Pickaxe);
-                    self.PickTile(Player.tileTargetX, Player.tileTargetY, power);
-                    if(self.hitTile.data.Length <= tile.type||self.hitTile.data[tile.type].damage>0) {
-		                AchievementsHelper.CurrentlyMining = true;
-		                self.hitTile.Clear(tile.type);
-			            WorldGen.KillTile(Player.tileTargetX, Player.tileTargetY);
-                        SetWall(tile2);
-				        AchievementsHelper.HandleMining();
-			            if (Main.netMode == NetmodeID.MultiplayerClient){
-				            NetMessage.SendData(MessageID.TileChange, -1, -1, null, 0, Player.tileTargetX, Player.tileTargetY);
-			            }
-		                AchievementsHelper.CurrentlyMining = false;
-                    }else if(!tile.active()) {
-                        tile.ResetToType(0);
-                        tile.active(false);
-                        SetWall(tile2);
+                }else if(!(Main.tileAxe[tile.type] || Main.tileHammer[tile.type])) {
+                    if(!Main.tileContainer[tile.type]) {
+                        self.selectedItem = GetBestToolSlot(self, out int power, toolType: Pickaxe);
+                        self.PickTile(Player.tileTargetX, Player.tileTargetY, power);
+                        if(self.hitTile.data.Length <= tile.type||self.hitTile.data[tile.type].damage>0) {
+                            AchievementsHelper.CurrentlyMining = true;
+                            self.hitTile.Clear(tile.type);
+                            WorldGen.KillTile(Player.tileTargetX, Player.tileTargetY);
+                            SetWall(tile2);
+                            AchievementsHelper.HandleMining();
+                            if(Main.netMode == NetmodeID.MultiplayerClient) {
+                                NetMessage.SendData(MessageID.TileChange, -1, -1, null, 0, Player.tileTargetX, Player.tileTargetY);
+                            }
+                            AchievementsHelper.CurrentlyMining = false;
+                        } else if(!tile.active()) {
+                            tile.ResetToType(0);
+                            tile.active(false);
+                            SetWall(tile2);
+                        }
                     }
                 }
                 self.selectedItem = selected;
@@ -86,7 +89,26 @@ namespace FunctionalBlockSwap {
                 player.Top.Y / 16f - Player.tileRangeY - tileBoost - player.blockRange <= Player.tileTargetY &&
                 player.Bottom.Y / 16f + Player.tileRangeY + tileBoost - 2f + player.blockRange >= Player.tileTargetY);
         }
-        public static bool TileCompatCheck(int currentTile, int createTile) {
+        public static bool TileCompatCheck(int currentTile, int currentFrameX, int createTile, int createStyle) {
+            if(Main.tileSolid[createTile]!=Main.tileSolid[currentTile]||Main.tileSolidTop[createTile]!=Main.tileSolidTop[currentTile]) {
+                return false;
+            }
+            TileObjectData current = TileObjectData.GetTileData(currentTile, 0);
+            if(!(current is null)) {
+                currentFrameX/=current.CoordinateFullWidth;
+                current = TileObjectData.GetTileData(currentTile, currentFrameX);
+            } else {
+                currentFrameX/=16;
+            }
+            TileObjectData create = TileObjectData.GetTileData(createTile, createStyle);
+            if(!(current is null||create is null)) {
+                if(current.Width!=create.Width||current.Height!=create.Height) {
+                    return false;
+                }
+            }
+            if(currentTile==createTile&&currentFrameX==createStyle){
+                return false;
+            }
             return !((TileID.Sets.Grass[currentTile]&&createTile==TileID.Dirt)||
                 (TileID.Sets.GrassSpecial[currentTile]&&createTile==TileID.Mud)||
                 (TileID.Sets.Grass[createTile]&&!TileID.Sets.Grass[currentTile]||
