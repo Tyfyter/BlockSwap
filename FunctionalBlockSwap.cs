@@ -48,9 +48,9 @@ namespace FunctionalBlockSwap {
                     if(!Main.tileContainer[tile.type]) {
                         self.selectedItem = GetBestToolSlot(self, out int power, toolType: Pickaxe);
                         self.PickTile(Player.tileTargetX, Player.tileTargetY, power);
-                        if(self.hitTile.data.Length <= tile.type||self.hitTile.data[tile.type].damage>0) {
+                        if(self.hitTile.data[0].damage>0) {
                             AchievementsHelper.CurrentlyMining = true;
-                            self.hitTile.Clear(tile.type);
+                            self.hitTile.Clear(0);
                             WorldGen.KillTile(Player.tileTargetX, Player.tileTargetY);
                             SetWall(tile2);
                             AchievementsHelper.HandleMining();
