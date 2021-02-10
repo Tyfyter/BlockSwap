@@ -106,7 +106,7 @@ namespace FunctionalBlockSwap {
                     return false;
                 }
             }
-            if(currentTile==createTile&&currentFrameX==createStyle){
+            if(currentTile==createTile&&(!(Main.tileFrameImportant[currentTile]&&Main.tileFrameImportant[createTile])||currentFrameX==createStyle)){
                 return false;
             }
             return !((TileID.Sets.Grass[currentTile]&&createTile==TileID.Dirt)||

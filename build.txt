@@ -1,6 +1,6 @@
 displayName = Block Swap
 author = Tyfyter
-version = 1.0.5
+version = 1.0.5.1
 homepage = https://tyfyter.github.io/
 hideCode = false
 hideResources = false
