@@ -1,4 +1,4 @@
-using Terraria;
+﻿using Terraria;
 using Terraria.DataStructures;
 using Terraria.GameContent.Achievements;
 using Terraria.ModLoader;
@@ -8,6 +8,7 @@ using Terraria.ID;
 using Terraria.ObjectData;
 using Microsoft.Xna.Framework;
 using Tyfyter.Utils;
+using static Terraria.ID.TileID;
 
 namespace FunctionalBlockSwap {
     public class FunctionalBlockSwap : Mod {
@@ -18,6 +19,16 @@ namespace FunctionalBlockSwap {
         }
         public override void PostAddRecipes() {
             wallID = (ushort)ModContent.WallType<DummyWall>();
+        }
+        static bool verticalNormalOrigin(ushort type) {
+            switch(type) {
+                case Firework:
+                case FireworkFountain:
+                case LavaLamp:
+                return true;
+                default:
+                return false;
+            }
         }
 
         private void PlaceThing(Hook.Player.orig_PlaceThing orig, Player self) {
@@ -49,13 +60,14 @@ namespace FunctionalBlockSwap {
                     }
                 }else if(!(Main.tileAxe[tile.type] || Main.tileHammer[tile.type])) {
                     if(Main.tileContainer[tile.type]&&Main.tileContainer[createTile]) {
-                        for(int i = 0; i < Main.chest.Length; i++) {
-                            chest = Main.chest[i];
-                            if(chest is null)
-                                continue;
-                            if(chest.x == Player.tileTargetX && chest.y == Player.tileTargetY - 1) {
+                        int cIndex = Chest.FindChest(Player.tileTargetX, Player.tileTargetY - 1);
+                        if(cIndex!=-1) {
+                            if(Chest.UsingChest(cIndex) == -1 && !Chest.isLocked(Player.tileTargetX, Player.tileTargetY - 1)) {
+                                chest = Main.chest[cIndex];
                                 chest.y++;
-                                break;
+                            } else {
+                                orig(self);
+                                return;
                             }
                         }
                     }
@@ -106,34 +118,163 @@ namespace FunctionalBlockSwap {
         }
         public static bool TileCompatCheck(Tile currentTile, int createTile, int createStyle) {
             int currentType = currentTile.type;
-            int currentFrameX = currentTile.frameX;
+            int currentStyle = currentTile.frameX;
+            int xStyle = currentTile.frameX;
             if(Main.tileSolid[createTile]!=Main.tileSolid[currentType]||Main.tileSolidTop[createTile]!=Main.tileSolidTop[currentType]) {
                 return false;
             }
             TileObjectData currentData = TileObjectData.GetTileData(currentType, 0);
-            if(!(currentData is null)) {
-                currentFrameX/=currentData.CoordinateFullWidth;
-                currentData = TileObjectData.GetTileData(currentType, currentFrameX);
+            if(currentType == Chairs) {
+                currentStyle = GetChairStyle(currentTile.frameY);
+                if(currentStyle == -1)currentStyle = createStyle;
+            } else if(!(currentData is null)) {
+                if(!currentData.StyleHorizontal) {
+                    currentStyle = currentTile.frameY;
+                    int frameY = 0;
+                    for(int y = currentStyle; y > 0; y -= currentData.CoordinateHeights[frameY%currentData.Height] + currentData.CoordinatePadding) {
+                        frameY++;
+                        if(frameY % currentData.Height == 0 && !currentData.StyleHorizontal) {
+                            currentData = TileObjectData.GetTileData(currentType, frameY/currentData.Height);
+                            //y -= currentData.CoordinatePadding * (currentType == Chairs ? 2 : 1);
+                        }
+                    }
+                    currentStyle = frameY/currentData.Height;
+                    xStyle /= currentData.CoordinateFullWidth;
+                } else {
+                    currentStyle /= currentData.CoordinateFullWidth;
+                    xStyle /= currentData.CoordinateFullWidth;
+                    xStyle &= 1;
+                }
+
+                currentData = TileObjectData.GetTileData(currentType, currentStyle);
             } else {
-                currentFrameX/=16;
+                currentStyle /= 18;//vert?18:16;
+                xStyle /= 18;
+            }
+            if(UsesPlayerDirection(currentType, out bool rev) &&
+                (((xStyle>0) != (Main.LocalPlayer.direction>0))^rev)) {
+                currentStyle = -1;
             }
             TileObjectData createData = TileObjectData.GetTileData(createTile, createStyle);
-            if(!(currentData is null||createData is null)) {
+            if(!(currentData is null||createData is null) && currentType != Chairs) {
                 if(currentData.Width!=createData.Width||currentData.Height!=createData.Height) {
                     return false;
                 }
                 Point offset = MultiTileUtils.GetRelativeOriginCoordinates(currentData, currentTile);
-                if(offset!=new Point(0,0)) {
+                if(offset!=new Point(0,0)) {//vert^verticalNormalOrigin(currentTile.type)?currentData.Height-1:
                     return false;
                 }
             }
-            if(currentType==createTile&&(!(Main.tileFrameImportant[currentType]&&Main.tileFrameImportant[createTile])||currentFrameX==createStyle)){
+            if(currentType==createTile&&(!(Main.tileFrameImportant[currentType]&&Main.tileFrameImportant[createTile])||currentStyle==createStyle)){
                 return false;
             }
             return !((TileID.Sets.Grass[currentType]&&createTile==TileID.Dirt)||
                 (TileID.Sets.GrassSpecial[currentType]&&createTile==TileID.Mud)||
                 (TileID.Sets.Grass[createTile]&&!TileID.Sets.Grass[currentType]||
                 TileID.Sets.GrassSpecial[createTile]&&!TileID.Sets.GrassSpecial[currentType]));
+        }
+        public static bool UsesPlayerDirection(int type, out bool reverse) {
+            reverse = false;
+            switch(type) {
+                case Beds:
+                case Bathtubs:
+                case Womannequin:
+                case Mannequin:
+                case Chairs:
+                return true;
+
+                default:
+                return false;
+            }
+        }
+        /// <summary>
+        /// I implemented an entire bidirectional dictionary class to hardcode this, and it's just чертов (frameY-18)/40...
+        /// </summary>
+        public static int GetChairStyle(short frameY) {
+            frameY -= 18;
+            if(frameY%40 == 0) {
+                return frameY / 40;
+            }
+            return -1;
+            #region suffering
+            /*switch(frameY){
+                case 18:
+                return 0;
+                case 58:
+                return 1;
+                case 98:
+                return 2;
+                case 138:
+                return 3;
+                case 178:
+                return 4;
+                case 218:
+                return 5;
+                case 258:
+                return 6;
+                case 298:
+                return 7;
+                case 338:
+                return 8;
+                case 378:
+                return 9;
+                case 418:
+                return 10;
+                case 458:
+                return 11;
+                case 498:
+                return 12;
+                case 538:
+                return 13;
+                case 578:
+                return 14;
+                case 618:
+                return 15;
+                case 658:
+                return 16;
+                case 698:
+                return 17;
+                case 738:
+                return 18;
+                case 778:
+                return 19;
+                case 858:
+                return 20;
+                case 818:
+                return 21;
+                case 898:
+                return 22;
+                case 938:
+                return 23;
+                case 978:
+                return 24;
+                case 1018:
+                return 25;
+                case 1058:
+                return 26;
+                case 1098:
+                return 27;
+                case 1138:
+                return 28;
+                case 1178:
+                return 29;
+                case 1218:
+                return 30;
+                case 1258:
+                return 31;
+                case 1298:
+                return 32;
+                case 1338:
+                return 33;
+                case 1378:
+                return 34;
+                case 1418:
+                return 35;
+                case 1458:
+                return 36;
+            }
+            return -1;*/
+            #endregion suffering
         }
         public static int GetBestToolSlot(Player player, out int power, ToolType toolType = Pickaxe) {
             int slot = player.selectedItem;
