@@ -39,6 +39,10 @@ namespace FunctionalBlockSwap {
             }
             Tile tile = Main.tile[Player.tileTargetX,Player.tileTargetY];
             Tile tile2 = Main.tile[Player.tileTargetX, Player.tileTargetY+1];
+            if(!tile.active()) {
+                orig(self);
+                return;
+            }
             ushort wall = tile2.wall;
             Chest chest = null;
             if(PlaceThingChecks(self)&&createTile>-1&&TileCompatCheck(tile, createTile, self.HeldItem.placeStyle)&&tile.active()) {
@@ -131,15 +135,17 @@ namespace FunctionalBlockSwap {
                 if(!currentData.StyleHorizontal) {
                     currentStyle = currentTile.frameY;
                     int frameY = 0;
-                    for(int y = currentStyle; y > 0; y -= currentData.CoordinateHeights[frameY%currentData.Height] + currentData.CoordinatePadding) {
+                    for(int y = currentStyle; y > 0; y -= currentData.CoordinateHeights[frameY % currentData.Height] + currentData.CoordinatePadding) {
                         frameY++;
                         if(frameY % currentData.Height == 0 && !currentData.StyleHorizontal) {
-                            currentData = TileObjectData.GetTileData(currentType, frameY/currentData.Height);
+                            currentData = TileObjectData.GetTileData(currentType, frameY / currentData.Height);
                             //y -= currentData.CoordinatePadding * (currentType == Chairs ? 2 : 1);
                         }
                     }
-                    currentStyle = frameY/currentData.Height;
+                    currentStyle = frameY / currentData.Height;
                     xStyle /= currentData.CoordinateFullWidth;
+                } else if(TileID.Sets.Platforms[currentType]) {
+                    currentStyle = currentTile.frameY/18;
                 } else {
                     currentStyle /= currentData.CoordinateFullWidth;
                     xStyle /= currentData.CoordinateFullWidth;
