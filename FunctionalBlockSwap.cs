@@ -43,6 +43,7 @@ namespace FunctionalBlockSwap {
                 orig(self);
                 return;
             }
+            ushort oldType = tile.type;
             ushort wall = tile2.wall;
             Chest chest = null;
             if(PlaceThingChecks(self)&&createTile>-1&&TileCompatCheck(tile, createTile, self.HeldItem.placeStyle)&&tile.active()) {
@@ -88,17 +89,21 @@ namespace FunctionalBlockSwap {
                         }
                         AchievementsHelper.CurrentlyMining = false;
                     } else if(!tile.active()) {
-                        tile.ResetToType(0);
+                        tile.ResetToType(TileID.Dirt);
                         tile.active(false);
                         SetWall(tile2);
+                    } else {
+                        self.itemTime = 6;
                     }
                 }
                 self.selectedItem = selected;
             }
             if(Main.netMode == NetmodeID.MultiplayerClient) {
-                ushort t = tile.type;
                 orig(self);
-				if(tile.type!=t)NetMessage.SendData(MessageID.TileChange, -1, -1, null, tile.type, Player.tileTargetX, Player.tileTargetY);
+                if (tile.type != oldType) {
+                    //Main.LocalPlayer.chatOverhead.NewMessage(tile.type +":"+ oldType, 30);
+                    NetMessage.SendData(MessageID.TileChange, -1, -1, null, tile.type+1, Player.tileTargetX, Player.tileTargetY);
+                }
             } else {
                 orig(self);
             }
