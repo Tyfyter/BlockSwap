@@ -102,7 +102,7 @@ namespace FunctionalBlockSwap {
                 orig(self);
                 if (tile.type != oldType) {
                     //Main.LocalPlayer.chatOverhead.NewMessage(tile.type +":"+ oldType, 30);
-                    NetMessage.SendData(MessageID.TileChange, -1, -1, null, tile.type+1, Player.tileTargetX, Player.tileTargetY);
+                    NetMessage.SendData(MessageID.TileChange, -1, -1, null, GetTileNetType(tile.type), Player.tileTargetX, Player.tileTargetY);
                 }
             } else {
                 orig(self);
@@ -124,6 +124,14 @@ namespace FunctionalBlockSwap {
                 player.Right.X / 16f + Player.tileRangeX + tileBoost - 1f + player.blockRange >= Player.tileTargetX &&
                 player.Top.Y / 16f - Player.tileRangeY - tileBoost - player.blockRange <= Player.tileTargetY &&
                 player.Bottom.Y / 16f + Player.tileRangeY + tileBoost - 2f + player.blockRange >= Player.tileTargetY);
+        }
+        public static int GetTileNetType(int type) {
+            switch (type) {
+                case Iron:
+                return Iron;
+                default:
+                return type + 1;
+            }
         }
         public static bool TileCompatCheck(Tile currentTile, int createTile, int createStyle) {
             int currentType = currentTile.type;
