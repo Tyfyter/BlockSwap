@@ -12,14 +12,15 @@ using static Terraria.ID.TileID;
 
 namespace FunctionalBlockSwap {
     public class FunctionalBlockSwap : Mod {
-        public static ushort wallID = 0;
+        //public static ushort wallID = 0;
+        public const ushort wallID = WallID.DirtUnsafe;
 
         public override void Load() {
             Hook.Player.PlaceThing+=PlaceThing;
         }
-        public override void PostAddRecipes() {
-            wallID = (ushort)ModContent.WallType<DummyWall>();
-        }
+        /*public override void PostAddRecipes() {
+            wallID = WallID.DirtUnsafe;//(ushort)ModContent.WallType<DummyWall>();
+        }*/
         static bool verticalNormalOrigin(ushort type) {
             switch(type) {
                 case Firework:
@@ -63,7 +64,7 @@ namespace FunctionalBlockSwap {
                             NetMessage.SendData(MessageID.TileChange, -1, -1, null, 0, Player.tileTargetX, Player.tileTargetY);
                         }
                     }
-                }else if(!(Main.tileAxe[tile.type] || Main.tileHammer[tile.type])) {
+                } else if(!(Main.tileAxe[tile.type] || Main.tileHammer[tile.type])) {
                     if(Main.tileContainer[tile.type]&&Main.tileContainer[createTile]) {
                         int cIndex = Chest.FindChest(Player.tileTargetX, Player.tileTargetY - 1);
                         if(cIndex!=-1) {
@@ -85,7 +86,7 @@ namespace FunctionalBlockSwap {
                         SetWall(tile2);
                         AchievementsHelper.HandleMining();
                         if(Main.netMode == NetmodeID.MultiplayerClient) {
-                            NetMessage.SendData(MessageID.TileChange, -1, -1, null, 0, Player.tileTargetX, Player.tileTargetY);
+                            //NetMessage.SendData(MessageID.TileChange, -1, -1, null, 0, Player.tileTargetX, Player.tileTargetY);
                         }
                         AchievementsHelper.CurrentlyMining = false;
                     } else if(!tile.active()) {
@@ -102,7 +103,8 @@ namespace FunctionalBlockSwap {
                 orig(self);
                 if (tile.type != oldType) {
                     //Main.LocalPlayer.chatOverhead.NewMessage(tile.type +":"+ oldType, 30);
-                    NetMessage.SendData(MessageID.TileChange, -1, -1, null, GetTileNetType(tile.type), Player.tileTargetX, Player.tileTargetY);
+                    NetMessage.SendTileRange(Main.myPlayer, Player.tileTargetX, Player.tileTargetY, 0, 0);
+                    //NetMessage.SendData(MessageID.TileChange, -1, -1, null, GetTileNetType(tile.type), Player.tileTargetX, Player.tileTargetY);
                 }
             } else {
                 orig(self);
@@ -137,7 +139,9 @@ namespace FunctionalBlockSwap {
             int currentType = currentTile.type;
             int currentStyle = currentTile.frameX;
             int xStyle = currentTile.frameX;
-            if(Main.tileSolid[createTile]!=Main.tileSolid[currentType]||Main.tileSolidTop[createTile]!=Main.tileSolidTop[currentType]) {
+            if(Main.tileSolid[createTile]!=Main.tileSolid[currentType]||
+                Main.tileSolidTop[createTile]!=Main.tileSolidTop[currentType]||
+                (Sets.Falling[createTile] && !Sets.Falling[createTile])) {
                 return false;
             }
             TileObjectData currentData = TileObjectData.GetTileData(currentType, 0);
@@ -326,12 +330,12 @@ namespace FunctionalBlockSwap {
             return slot;
         }
 	}
-    public class DummyWall : ModWall {
+    /*public class DummyWall : ModWall {
         public override bool Autoload(ref string name, ref string texture) {
             texture = "Terraria/Wall_1";
             return true;
         }
-    }
+    }*/
     public enum ToolType {
         Pickaxe,
         Axe,
