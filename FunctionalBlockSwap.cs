@@ -17,6 +17,7 @@ using Terraria.Localization;
 using System.Text;
 using Terraria.Enums;
 using static Terraria.TileObject;
+using System.Linq;
 
 namespace FunctionalBlockSwap {
     public class FunctionalBlockSwap : Mod {
@@ -163,18 +164,26 @@ namespace FunctionalBlockSwap {
                     }
                     self.selectedItem = GetBestToolSlot(self, out int power, toolType: Pickaxe);
                     clientSwapping = true;
-                    if(!chestSwapping)self.PickTile(Player.tileTargetX, Player.tileTargetY, power);
-                    if(self.hitTile.data[0].damage>0 || chestSwapping) {
+
+                    int hitID = -1;
+                    if (!chestSwapping) {
+                        self.PickTile(Player.tileTargetX, Player.tileTargetY, power);
+                        hitID = self.hitTile.HitObject(Player.tileTargetX, Player.tileTargetY, 1);
+                    }
+                    
+                    if((hitID > -1 && self.hitTile.data[hitID].damage > 0) || (Sets.Grass[oldType] && tile.type == Dirt) || chestSwapping) {
                         AchievementsHelper.CurrentlyMining = true;
-                        self.hitTile.Clear(0);
-                        WorldGen.KillTile(Player.tileTargetX, Player.tileTargetY);
+                        if(hitID > -1)self.hitTile.Clear(hitID);
+                        self.PickTile(Player.tileTargetX, Player.tileTargetY, int.MaxValue);
+                        //WorldGen.KillTile(Player.tileTargetX, Player.tileTargetY);
                         SetWall(tile2);
                         AchievementsHelper.HandleMining();
                         AchievementsHelper.CurrentlyMining = false;
                     } else if(!tile.active()) {
                         SetWall(tile2);
                     } else {
-					    self.itemTime = PlayerHooks.TotalUseTime((float)self.HeldItem.useTime * self.tileSpeed, self, self.HeldItem);
+                        self.itemTime = 0;
+                        BlockSwapPlayer.triggerItemTime = true;
                     }
                     clientSwapping = false;
                 }
@@ -222,7 +231,6 @@ namespace FunctionalBlockSwap {
                         packet.Write((short)y);
                         packet.Write((short)targetSizeX);
                         packet.Write((short)targetSizeY);
-						bool b = true;
                         for (int i = 0; i < targetSizeX; i++) {
                             for (int j = 0; j < targetSizeY; j++) {
                                 packet.Write(Main.tile[x + i, y + j].type);
