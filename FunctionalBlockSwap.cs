@@ -4,23 +4,144 @@ using Terraria.GameContent.Achievements;
 using Terraria.ModLoader;
 using static FunctionalBlockSwap.ToolType;
 using Hook = On.Terraria;
+using ILMod = IL.Terraria;
 using Terraria.ID;
 using Terraria.ObjectData;
 using Microsoft.Xna.Framework;
 using Tyfyter.Utils;
 using static Terraria.ID.TileID;
+using MonoMod.Utils;
+using System.Reflection;
+using System.IO;
+using Terraria.Localization;
+using System.Text;
 
 namespace FunctionalBlockSwap {
     public class FunctionalBlockSwap : Mod {
         //public static ushort wallID = 0;
         public const ushort wallID = WallID.DirtUnsafe;
-
+        /// <summary>
+        /// blocks SquareTileFrame and reroutes chest destruction packets
+        /// </summary>
+        internal protected bool clientSwapping = false;
+        internal protected bool blockDestroyChest = false;
         public override void Load() {
-            Hook.Player.PlaceThing+=PlaceThing;
+            Hook.Player.PlaceThing += PlaceThing;
+            Hook.WorldGen.SquareTileFrame += SquareTileFrame;
+            //Hook.Chest.DestroyChest += DestroyChest;
+
+            ///replace chest descruction netmessages while blockswapping
+
+            //new DynamicMethodDefinition(typeof(WorldGen).GetMethod("KillTile", BindingFlags.Instance|BindingFlags.Public));
         }
-        /*public override void PostAddRecipes() {
-            wallID = WallID.DirtUnsafe;//(ushort)ModContent.WallType<DummyWall>();
-        }*/
+        public override void HandlePacket(BinaryReader reader, int whoAmI) {
+            if (Main.netMode == NetmodeID.Server) {
+                byte msgType = reader.ReadByte();
+                switch (msgType) {
+                    case 0: {
+		                int x = reader.ReadInt16();
+		                int y = reader.ReadInt16();
+		                int width = reader.ReadInt16();
+		                int height = reader.ReadInt16();
+                        StringBuilder builder = new StringBuilder();
+                        for (int i = 0; i < width; i++) {
+                            for (int j = 0; j < height; j++) {
+                                Main.tile[x + i, y + j].active(true);
+                                Main.tile[x + i, y + j].ResetToType(reader.ReadUInt16());
+                                builder.Append(Main.tile[x + i, y + j].type);
+                                builder.Append(", ");
+                                Main.tile[x + i, y + j].frameX = reader.ReadInt16();
+                                Main.tile[x + i, y + j].frameY = reader.ReadInt16();
+                            }
+                        }
+                        NetMessage.BroadcastChatMessage(NetworkText.FromLiteral($"goat pack, {width * height} much, {builder}"), Color.CornflowerBlue);
+                        break;
+                    }
+                }
+            }
+        }
+        /*
+        private bool DestroyChest(Hook.Chest.orig_DestroyChest orig, int X, int Y) {
+            if (Main.netMode == NetmodeID.Server) {
+                NetMessage.BroadcastChatMessage(NetworkText.FromLiteral(blockDestroyChest+""), Color.CornflowerBlue);
+            } else {
+                Main.NewText(blockDestroyChest, Color.IndianRed);
+            }
+            return blockDestroyChest || orig(X,Y);
+        }
+
+        /*public override bool HijackGetData(ref byte messageType, ref BinaryReader reader, int playerNumber) {
+           if (Main.netMode == NetmodeID.Server && messageType == 34) {
+               NetMessage.BroadcastChatMessage(NetworkText.FromLiteral("got 34"), Color.DodgerBlue);
+           }
+           return false;
+        }* /
+        public override void HandlePacket(BinaryReader reader, int whoAmI) {
+            if (Main.netMode == NetmodeID.Server) {
+                byte msgType = reader.ReadByte();
+                switch (msgType) {
+                    case 0: {
+		                byte type = reader.ReadByte();
+		                int x = reader.ReadInt16();
+		                int y = reader.ReadInt16();
+                        int width = 0;
+                        int height = 0;
+				        //*
+				        Tile targetTile = Main.tile[x, y];
+                        switch (type % 100) {
+                            case 5:
+                            case 1:
+				            if (targetTile.frameX % 36 != 0) {
+					            x--;
+				            }
+				            if (targetTile.frameY % 36 != 0) {
+					            y--;
+				            }
+                            width = 1;
+                            height = 1;
+                            break;
+                            case 3:
+				            x -= targetTile.frameX % 54 / 18;
+				            if (targetTile.frameY % 36 != 0) {
+					            y--;
+				            }
+                            width = 2;
+                            height = 1;
+                            break;
+                        }
+                        try {
+                            blockDestroyChest = true;
+				            WorldGen.KillTile(x, y);
+                            NetMessage.SendTileRange(Main.myPlayer, x, y, width, height);
+                        } finally {
+                            blockDestroyChest = false;
+                        }//* /
+
+                        break;
+                    }
+                }
+            }
+        }
+
+        public override bool HijackSendData(int whoAmI, int msgType, int remoteClient, int ignoreClient, NetworkText text, int number, float number2, float number3, float number4, int number5, int number6, int number7) {
+            if (clientSwapping && IsNetSynced && Main.netMode == NetmodeID.MultiplayerClient && msgType == 34 && number % 100 == 1) {
+                Main.NewText("Hijacked 34", Color.DodgerBlue);
+                ModPacket packet = GetPacket(1+(7*4));
+                packet.Write((byte)0);
+			    packet.Write((byte)number);
+			    packet.Write((short)number2);
+			    packet.Write((short)number3);
+                packet.Send();
+                return true;
+            }
+            return false;
+        }//*/
+
+        private void SquareTileFrame(Hook.WorldGen.orig_SquareTileFrame orig, int i, int j, bool resetFrame) {
+            if (!clientSwapping) {
+                orig(i, j, resetFrame);
+            }
+        }
         static bool verticalNormalOrigin(ushort type) {
             switch(type) {
                 case Firework:
@@ -42,44 +163,84 @@ namespace FunctionalBlockSwap {
             Tile tile2 = Main.tile[Player.tileTargetX, Player.tileTargetY+1];
             if(!tile.active()) {
                 orig(self);
+                if (tile.active() && Main.tileContainer[tile.type]) {
+                    int tSX = 1 + 1;
+                    int tSY = 1 + 1;
+                    int x = Player.tileTargetX + 0;
+                    int y = Player.tileTargetY + -1;
+                    StringBuilder builder = new StringBuilder();
+                    for (int i = 0; i < tSX; i++) {
+                        for (int j = 0; j < tSY; j++) {
+                            builder.Append(Main.tile[x + i, y + j].active()? "[c/6495ed:" : "[c/aaaaaa:");
+                            builder.Append(Main.tile[x + i, y + j].type);
+                            builder.Append("], ");
+                        }
+                    }
+                    Main.NewText(NetworkText.FromLiteral($"sandn't packn't, {builder}"), Color.CornflowerBlue);
+                }
                 return;
             }
             ushort oldType = tile.type;
             ushort wall = tile2.wall;
             Chest chest = null;
+            int targetOffsetX = 0;
+            int targetOffsetY = 0;
+            int targetSizeX = 0;
+            int targetSizeY = 0;
+            byte oldSlope = tile.slope();
+            bool oldHalfBrick = tile.halfBrick();
+            short oldFrameX = -1;
+            short oldFrameY = -1;
+            if (Main.tileFrameImportant[tile.type]) {//TileID.Sets.Platforms[tile.type]
+                oldFrameX = tile.frameX;
+                oldFrameY = tile.frameY;
+            }
+            bool chestSwapping = false;
             if(PlaceThingChecks(self)&&createTile>-1&&TileCompatCheck(tile, createTile, self.HeldItem.placeStyle)&&tile.active()) {
                 int selected = self.selectedItem;
-                if(Main.tileHammer[tile.type]) {
+                /*if (Main.tileHammer[tile.type]) {
                     bool breakTile = Main.tileNoFail[tile.type];
-                    if(!breakTile&&WorldGen.CanKillTile(Player.tileTargetX, Player.tileTargetY)) {
+                    if (!breakTile && WorldGen.CanKillTile(Player.tileTargetX, Player.tileTargetY)) {
                         self.selectedItem = GetBestToolSlot(self, out int power, toolType: Hammer);
-                        if(tile.type == TileID.DemonAltar && (power < 80 || !Main.hardMode)) {
+                        if (tile.type == TileID.DemonAltar && (power < 80 || !Main.hardMode)) {
                             self.Hurt(PlayerDeathReason.ByOther(4), self.statLife / 2, -self.direction);
                         }
                     }
-                    if(breakTile) {
+                    if (breakTile) {
                         WorldGen.KillTile(Player.tileTargetX, Player.tileTargetY);
                         SetWall(tile2);
-                        if(Main.netMode == NetmodeID.MultiplayerClient) {
+                        if (Main.netMode == NetmodeID.MultiplayerClient) {
                             NetMessage.SendData(MessageID.TileChange, -1, -1, null, 0, Player.tileTargetX, Player.tileTargetY);
                         }
                     }
-                } else if(!(Main.tileAxe[tile.type] || Main.tileHammer[tile.type])) {
+                } else */
+                if(!(Main.tileAxe[tile.type] || Main.tileHammer[tile.type])) {
+                    Main.NewText("pick maybe");
                     if(Main.tileContainer[tile.type]&&Main.tileContainer[createTile]) {
-                        int cIndex = Chest.FindChest(Player.tileTargetX, Player.tileTargetY - 1);
+                        TileObjectData objectData = TileObjectData.GetTileData(tile.type, 0);
+                        int cIndex = Chest.FindChest(Player.tileTargetX, Player.tileTargetY - (objectData.Height - 1));
                         if(cIndex!=-1) {
+                            targetSizeX = objectData.Width-1;
+                            targetSizeY = objectData.Height-1;
+                            targetOffsetY = -targetSizeY;
                             if(Chest.UsingChest(cIndex) == -1 && !Chest.isLocked(Player.tileTargetX, Player.tileTargetY - 1)) {
                                 chest = Main.chest[cIndex];
                                 chest.y++;
+                                chestSwapping = true;
+                                Main.NewText("chest yes");
                             } else {
                                 orig(self);
+                                Main.NewText("chest no");
                                 return;
                             }
                         }
                     }
                     self.selectedItem = GetBestToolSlot(self, out int power, toolType: Pickaxe);
-                    self.PickTile(Player.tileTargetX, Player.tileTargetY, power);
-                    if(self.hitTile.data[0].damage>0) {
+                    clientSwapping = true;
+                    if(!chestSwapping)self.PickTile(Player.tileTargetX, Player.tileTargetY, power);
+                    Main.LocalPlayer.chatOverhead.NewMessage(self.hitTile.data[0].damage+"", 30);
+                    if(self.hitTile.data[0].damage>0 || chestSwapping) {
+                        Main.NewText("pick");
                         AchievementsHelper.CurrentlyMining = true;
                         self.hitTile.Clear(0);
                         WorldGen.KillTile(Player.tileTargetX, Player.tileTargetY);
@@ -90,27 +251,104 @@ namespace FunctionalBlockSwap {
                         }
                         AchievementsHelper.CurrentlyMining = false;
                     } else if(!tile.active()) {
-                        tile.ResetToType(TileID.Dirt);
-                        tile.active(false);
+                        Main.NewText("pick much");
+                        /*for (int oX = targetOffsetX; oX <= targetOffsetX+targetSizeX; oX++) {
+                            for (int oY = targetOffsetY; oY <= targetOffsetY+targetSizeY; oY++) {
+                                Main.tile[Player.tileTargetX + oX, Player.tileTargetY + oY].active(false);
+                            }
+                        }*/
+                        /*tile.ResetToType(TileID.Dirt);
+                        tile.active(false);*/
                         SetWall(tile2);
                     } else {
-                        self.itemTime = 6;
+                        Main.NewText("pick no");
+					    self.itemTime = PlayerHooks.TotalUseTime((float)self.HeldItem.useTime * self.tileSpeed, self, self.HeldItem);
                     }
+                    if (!tile.active()) {
+                        Main.NewText("pick succ");
+                        /*for (int oX = targetOffsetX; oX <= targetOffsetX+targetSizeX; oX++) {
+                            for (int oY = targetOffsetY; oY <= targetOffsetY+targetSizeY; oY++) {
+                                Main.tile[Player.tileTargetX + oX, Player.tileTargetY + oY].active(false);
+                            }
+                        }*/
+                    }
+                    Main.NewText($"{tile.type} != {oldType}");
+                    clientSwapping = false;
                 }
                 self.selectedItem = selected;
             }
             if(Main.netMode == NetmodeID.MultiplayerClient) {
-                orig(self);
-                if (tile.type != oldType) {
+                if (chestSwapping) {
+                    int tSX = targetSizeX + 1;
+                    int tSY = targetSizeY + 1;
+                    int x = Player.tileTargetX + targetOffsetX;
+                    int y = Player.tileTargetY + targetOffsetY;
+                    for (int i = 0; i < tSX; i++) {
+                        for (int j = 0; j < tSY; j++) {
+                            if (Main.tile[x + i, y + j].type == oldType) {
+                                Main.tile[x + i, y + j].type = 0;
+                                Main.tile[x + i, y + j].active(false);
+                            }
+                        }
+                    }
+                    Main.netMode = NetmodeID.SinglePlayer;
+                }
+                try {
+                    orig(self);
+                } finally {
+                    Main.netMode = NetmodeID.MultiplayerClient;
+                }
+                if (tile.type != oldType || (Main.tileFrameImportant[tile.type] && (oldFrameX == tile.frameX || oldFrameY == tile.frameY))) {
+                    tile2.wall = wall;
+                    tile.slope(oldSlope);
+                    tile.halfBrick(oldHalfBrick);
+                    if (TileID.Sets.Platforms[tile.type]) {
+                        tile.frameX = oldFrameX;
+                    }
+                    WorldGen.SquareTileFrame(Player.tileTargetX, Player.tileTargetY);
                     //Main.LocalPlayer.chatOverhead.NewMessage(tile.type +":"+ oldType, 30);
-                    NetMessage.SendTileRange(Main.myPlayer, Player.tileTargetX, Player.tileTargetY, 0, 0);
+                    NetMessage.SendTileRange(Main.myPlayer, Player.tileTargetX + targetOffsetX, Player.tileTargetY + targetOffsetY, targetSizeX, targetSizeY);
+                    if (chestSwapping && IsNetSynced) {
+                        targetSizeX++;
+                        targetSizeY++;
+                        ModPacket packet = GetPacket(1 + (4 * 2) + (targetSizeX * targetSizeY * 3 * 2));
+                        Main.NewText("pack succ");
+                        packet.Write((byte)0);
+                        int x = Player.tileTargetX + targetOffsetX;
+                        int y = Player.tileTargetY + targetOffsetY;
+                        packet.Write((short)x);
+                        packet.Write((short)y);
+                        packet.Write((short)targetSizeX);
+                        packet.Write((short)targetSizeY);
+                        StringBuilder builder = new StringBuilder();
+                        for (int i = 0; i < targetSizeX; i++) {
+                            for (int j = 0; j < targetSizeY; j++) {
+                                packet.Write(Main.tile[x + i, y + j].type);
+                                builder.Append(Main.tile[x + i, y + j].active()? "[c/6495ed:" : "[c/aaaaaa:");
+                                builder.Append(Main.tile[x + i, y + j].type);
+                                builder.Append("], ");
+                                packet.Write(Main.tile[x + i, y + j].frameX);
+                                packet.Write(Main.tile[x + i, y + j].frameY);
+                            }
+                        }
+                        packet.Send();
+                        Main.NewText(NetworkText.FromLiteral($"sand pack, {targetSizeX * targetSizeY} much, {builder}"), Color.CornflowerBlue);
+                    }
                     //NetMessage.SendData(MessageID.TileChange, -1, -1, null, GetTileNetType(tile.type), Player.tileTargetX, Player.tileTargetY);
                 }
             } else {
                 orig(self);
+                if (tile.type != oldType || (Main.tileFrameImportant[tile.type] && (oldFrameX == tile.frameX || oldFrameY == tile.frameY))) {
+                    tile2.wall = wall;
+                    tile.slope(oldSlope);
+                    tile.halfBrick(oldHalfBrick);
+                    if (TileID.Sets.Platforms[tile.type]) {
+                        tile.frameX = oldFrameX;
+                    }
+                    WorldGen.SquareTileFrame(Player.tileTargetX, Player.tileTargetY);
+                }
             }
 
-            tile2.wall = wall;
             if(!(chest is null)) {
                 chest.y--;
             }
@@ -219,85 +457,6 @@ namespace FunctionalBlockSwap {
                 return frameY / 40;
             }
             return -1;
-            #region suffering
-            /*switch(frameY){
-                case 18:
-                return 0;
-                case 58:
-                return 1;
-                case 98:
-                return 2;
-                case 138:
-                return 3;
-                case 178:
-                return 4;
-                case 218:
-                return 5;
-                case 258:
-                return 6;
-                case 298:
-                return 7;
-                case 338:
-                return 8;
-                case 378:
-                return 9;
-                case 418:
-                return 10;
-                case 458:
-                return 11;
-                case 498:
-                return 12;
-                case 538:
-                return 13;
-                case 578:
-                return 14;
-                case 618:
-                return 15;
-                case 658:
-                return 16;
-                case 698:
-                return 17;
-                case 738:
-                return 18;
-                case 778:
-                return 19;
-                case 858:
-                return 20;
-                case 818:
-                return 21;
-                case 898:
-                return 22;
-                case 938:
-                return 23;
-                case 978:
-                return 24;
-                case 1018:
-                return 25;
-                case 1058:
-                return 26;
-                case 1098:
-                return 27;
-                case 1138:
-                return 28;
-                case 1178:
-                return 29;
-                case 1218:
-                return 30;
-                case 1258:
-                return 31;
-                case 1298:
-                return 32;
-                case 1338:
-                return 33;
-                case 1378:
-                return 34;
-                case 1418:
-                return 35;
-                case 1458:
-                return 36;
-            }
-            return -1;*/
-            #endregion suffering
         }
         public static int GetBestToolSlot(Player player, out int power, ToolType toolType = Pickaxe) {
             int slot = player.selectedItem;
@@ -330,12 +489,6 @@ namespace FunctionalBlockSwap {
             return slot;
         }
 	}
-    /*public class DummyWall : ModWall {
-        public override bool Autoload(ref string name, ref string texture) {
-            texture = "Terraria/Wall_1";
-            return true;
-        }
-    }*/
     public enum ToolType {
         Pickaxe,
         Axe,

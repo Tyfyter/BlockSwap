@@ -4,4 +4,4 @@ version = 1.0.7
 homepage = https://tyfyter.github.io/
 hideCode = false
 hideResources = false
-side = Client
+side = NoSync
