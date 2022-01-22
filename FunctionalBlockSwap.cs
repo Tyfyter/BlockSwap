@@ -18,6 +18,9 @@ using System.Text;
 using Terraria.Enums;
 using static Terraria.TileObject;
 using System.Linq;
+using MonoMod.Cil;
+using Mono.Cecil.Cil;
+using System;
 
 namespace FunctionalBlockSwap {
     public class FunctionalBlockSwap : Mod {
@@ -26,15 +29,61 @@ namespace FunctionalBlockSwap {
         /// <summary>
         /// blocks SquareTileFrame and reroutes chest destruction packets
         /// </summary>
-        internal protected bool clientSwapping = false;
-        internal protected bool blockDestroyChest = false;
-        internal protected bool blockChestHooks = false;
+        internal static protected bool clientSwapping = false;
+        internal static protected bool blockDestroyChest = false;
+        internal static protected bool blockChestHooks = false;
+        internal static protected bool disableMod = false;
+        internal static protected bool testing = true;
+        internal static protected int hitTileLastDamage = 0;
         public override void Load() {
             Hook.Player.PlaceThing += PlaceThing;
             Hook.WorldGen.SquareTileFrame += SquareTileFrame;
             Hook.Chest.FindEmptyChest += Chest_FindEmptyChest;
             Hook.Chest.AfterPlacement_Hook += Chest_AfterPlacement_Hook;
             Hook.Chest.DestroyChest += Chest_DestroyChest;
+            //Hook.WorldGen.CanKillTile_int_int_refBoolean += CanKillTile;
+            //Hook.HitTile.AddDamage += HitTile_AddDamage;
+            //ILMod.WorldGen.KillTile += WorldGen_KillTile;
+        }
+
+        private void WorldGen_KillTile(ILContext il) {
+            ILCursor c = new ILCursor(il);
+            FieldInfo tileType = typeof(Tile).GetField("type", BindingFlags.Public | BindingFlags.Instance);
+            MethodInfo newText = typeof(Main).GetMethod("NewText", new Type[]{ typeof(object), typeof(Color), typeof(bool) });
+            ILLabel jumpTarget = null;
+            if (c.TryGotoNext(MoveType.After, i => i.MatchLdloc(0), i => i.MatchLdfld(tileType), i => i.MatchLdcI4(72), i => i.MatchBeq(out jumpTarget))) {
+                c.Emit(OpCodes.Ldsfld, typeof(FunctionalBlockSwap).GetField("testing", BindingFlags.NonPublic | BindingFlags.Static));
+                c.Emit(OpCodes.Brtrue, jumpTarget);
+                Logger.Info("patched killtile with jump to " + jumpTarget.Target.OpCode.Name);
+            } else {
+                Logger.Info("failed to patch killtile");
+            }
+        }
+
+        private int HitTile_AddDamage(Hook.HitTile.orig_AddDamage orig, HitTile self, int tileId, int damageAmount, bool updateAmount) {
+            return hitTileLastDamage = orig(self, tileId, damageAmount, updateAmount);
+        }
+
+        private bool CanKillTile(Hook.WorldGen.orig_CanKillTile_int_int_refBoolean orig, int i, int j, out bool blockDamaged) {
+            if (clientSwapping) {
+	            blockDamaged = false;
+	            if (i < 0 || j < 0 || i >= Main.maxTilesX || j >= Main.maxTilesY){
+		            return false;
+	            }
+	            Tile tile = Main.tile[i, j];
+	            if (tile == null) {
+		            return false;
+	            }
+	            if (!tile.active()) {
+		            return false;
+	            }
+	            if (!TileLoader.CanKillTile(i, j, tile.type, ref blockDamaged)) {
+		            return false;
+	            }
+	            blockDamaged = true;
+                return true;
+            }
+	        return orig(i, j, out blockDamaged);
         }
 
         private bool Chest_DestroyChest(Hook.Chest.orig_DestroyChest orig, int X, int Y) {
@@ -103,11 +152,23 @@ namespace FunctionalBlockSwap {
 							WorldGen.TileFrame(i, j);
                         }
                     }
-					break;
                 }
+                break;
+                case 1: {
+                    if (Main.netMode == NetmodeID.MultiplayerClient) {
+                        disableMod = reader.ReadBoolean();
+                    }
+                }
+                break;
             }
         }
-
+        
+        private static bool iltest(Hook.WorldGen.orig_SquareTileFrame orig, int i, int j, bool resetFrame) {
+            if (clientSwapping) {
+                return true;
+            }
+            return false;
+        }
         private void SquareTileFrame(Hook.WorldGen.orig_SquareTileFrame orig, int i, int j, bool resetFrame) {
             if (!clientSwapping) {
                 orig(i, j, resetFrame);
@@ -115,6 +176,9 @@ namespace FunctionalBlockSwap {
         }
 
         private void PlaceThing(Hook.Player.orig_PlaceThing orig, Player self) {
+            if (disableMod && IsNetSynced) {
+                return;
+            }
             int createTile = self.HeldItem.createTile;
             if(createTile==TileID.Torches||(TileLoader.GetTile(createTile)?.torch??false)) {
                 orig(self);
@@ -152,7 +216,7 @@ namespace FunctionalBlockSwap {
                             targetSizeX = objectData.Width-1;
                             targetSizeY = objectData.Height-1;
                             targetOffsetY = -targetSizeY;
-                            if(Chest.UsingChest(cIndex) == -1 && !Chest.isLocked(Player.tileTargetX, Player.tileTargetY - 1)) {
+                            if((IsNetSynced || Main.netMode == 0) && Chest.UsingChest(cIndex) == -1 && !Chest.isLocked(Player.tileTargetX, Player.tileTargetY - 1)) {
                                 chest = Main.chest[cIndex];
                                 chest.y++;
                                 chestSwapping = true;
@@ -163,25 +227,29 @@ namespace FunctionalBlockSwap {
                         }
                     }
                     self.selectedItem = GetBestToolSlot(self, out int power, toolType: Pickaxe);
+                    if(power <= 0) {
+                        orig(self);
+                        return;
+                    }
                     clientSwapping = true;
 
                     int hitID = -1;
                     if (!chestSwapping) {
                         self.PickTile(Player.tileTargetX, Player.tileTargetY, power);
-                        hitID = self.hitTile.HitObject(Player.tileTargetX, Player.tileTargetY, 1);
                     }
                     
-                    if((hitID > -1 && self.hitTile.data[hitID].damage > 0) || (Sets.Grass[oldType] && tile.type == Dirt) || chestSwapping) {
+                    if(chestSwapping || hitTileLastDamage > 0 || (Sets.Grass[oldType] && tile.type == Dirt)) {
                         AchievementsHelper.CurrentlyMining = true;
-                        if(hitID > -1)self.hitTile.Clear(hitID);
-                        self.PickTile(Player.tileTargetX, Player.tileTargetY, int.MaxValue);
+                        //if(hitID > -1)self.hitTile.Clear(hitID);
+                        clientSwapping = false;
+                        if(tile.active())self.PickTile(Player.tileTargetX, Player.tileTargetY, ushort.MaxValue);
                         //WorldGen.KillTile(Player.tileTargetX, Player.tileTargetY);
                         SetWall(tile2);
                         AchievementsHelper.HandleMining();
                         AchievementsHelper.CurrentlyMining = false;
-                    } else if(!tile.active()) {
+                    }/* else if(!tile.active()) {
                         SetWall(tile2);
-                    } else {
+                    }*/ else {
                         self.itemTime = 0;
                         BlockSwapPlayer.triggerItemTime = true;
                     }
@@ -220,7 +288,7 @@ namespace FunctionalBlockSwap {
                     WorldGen.SquareTileFrame(Player.tileTargetX, Player.tileTargetY);
 
                     NetMessage.SendTileRange(Main.myPlayer, Player.tileTargetX + targetOffsetX, Player.tileTargetY + targetOffsetY, targetSizeX, targetSizeY);
-                    if (chestSwapping && IsNetSynced) {
+                    if (chestSwapping) {
                         targetSizeX++;
                         targetSizeY++;
                         ModPacket packet = GetPacket(1 + (4 * 2) + (targetSizeX * targetSizeY * 3 * 2));
