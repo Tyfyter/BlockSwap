@@ -34,6 +34,7 @@ namespace FunctionalBlockSwap {
         internal static protected bool blockChestHooks = false;
         internal static protected bool disableMod = false;
         internal static protected bool testing = true;
+        internal static protected bool blockKillTileChestCheck = false;
         internal static protected int hitTileLastDamage = 0;
         public override void Load() {
             Hook.Player.PlaceThing += PlaceThing;
@@ -41,20 +42,20 @@ namespace FunctionalBlockSwap {
             Hook.Chest.FindEmptyChest += Chest_FindEmptyChest;
             Hook.Chest.AfterPlacement_Hook += Chest_AfterPlacement_Hook;
             Hook.Chest.DestroyChest += Chest_DestroyChest;
-            //Hook.WorldGen.CanKillTile_int_int_refBoolean += CanKillTile;
-            //Hook.HitTile.AddDamage += HitTile_AddDamage;
-            //ILMod.WorldGen.KillTile += WorldGen_KillTile;
+            Hook.WorldGen.CanKillTile_int_int_refBoolean += CanKillTile;
+            Hook.HitTile.AddDamage += HitTile_AddDamage;
+            ILMod.WorldGen.KillTile += WorldGen_KillTile;
         }
 
         private void WorldGen_KillTile(ILContext il) {
             ILCursor c = new ILCursor(il);
-            FieldInfo tileType = typeof(Tile).GetField("type", BindingFlags.Public | BindingFlags.Instance);
-            MethodInfo newText = typeof(Main).GetMethod("NewText", new Type[]{ typeof(object), typeof(Color), typeof(bool) });
+            ConstructorInfo tileCtor = typeof(Tile).GetConstructor(new Type[] { });
+            FieldInfo bKTCC = typeof(FunctionalBlockSwap).GetField("blockKillTileChestCheck", BindingFlags.NonPublic | BindingFlags.Static);
             ILLabel jumpTarget = null;
-            if (c.TryGotoNext(MoveType.After, i => i.MatchLdloc(0), i => i.MatchLdfld(tileType), i => i.MatchLdcI4(72), i => i.MatchBeq(out jumpTarget))) {
-                c.Emit(OpCodes.Ldsfld, typeof(FunctionalBlockSwap).GetField("testing", BindingFlags.NonPublic | BindingFlags.Static));
+            if (c.TryGotoNext(MoveType.After, i => !i.MatchRet(), i => i.MatchLdarg(1), i => i.MatchLdcI4(1), i => i.MatchBlt(out jumpTarget))) {
+                c.Emit(OpCodes.Ldsfld, bKTCC);
                 c.Emit(OpCodes.Brtrue, jumpTarget);
-                Logger.Info("patched killtile with jump to " + jumpTarget.Target.OpCode.Name);
+                Logger.Info($"patched killtile with jump to {jumpTarget.Target.OpCode} with offset {jumpTarget.Target.Offset}");
             } else {
                 Logger.Info("failed to patch killtile");
             }
@@ -65,7 +66,7 @@ namespace FunctionalBlockSwap {
         }
 
         private bool CanKillTile(Hook.WorldGen.orig_CanKillTile_int_int_refBoolean orig, int i, int j, out bool blockDamaged) {
-            if (clientSwapping) {
+            if (clientSwapping && Main.netMode == NetmodeID.SinglePlayer) {
 	            blockDamaged = false;
 	            if (i < 0 || j < 0 || i >= Main.maxTilesX || j >= Main.maxTilesY){
 		            return false;
@@ -155,6 +156,15 @@ namespace FunctionalBlockSwap {
                 }
                 break;
                 case 1: {
+                    if (Main.netMode == NetmodeID.Server) try {
+                        clientSwapping = true;
+                        WorldGen.KillTile(reader.ReadInt32(), reader.ReadInt32(), true);
+                    } finally {
+                        clientSwapping = false;
+                    }
+                }
+                break;
+                case 2: {
                     if (Main.netMode == NetmodeID.MultiplayerClient) {
                         disableMod = reader.ReadBoolean();
                     }
@@ -163,12 +173,6 @@ namespace FunctionalBlockSwap {
             }
         }
         
-        private static bool iltest(Hook.WorldGen.orig_SquareTileFrame orig, int i, int j, bool resetFrame) {
-            if (clientSwapping) {
-                return true;
-            }
-            return false;
-        }
         private void SquareTileFrame(Hook.WorldGen.orig_SquareTileFrame orig, int i, int j, bool resetFrame) {
             if (!clientSwapping) {
                 orig(i, j, resetFrame);
@@ -233,27 +237,38 @@ namespace FunctionalBlockSwap {
                     }
                     clientSwapping = true;
 
-                    int hitID = -1;
-                    if (!chestSwapping) {
-                        self.PickTile(Player.tileTargetX, Player.tileTargetY, power);
-                    }
-                    
-                    if(chestSwapping || hitTileLastDamage > 0 || (Sets.Grass[oldType] && tile.type == Dirt)) {
-                        AchievementsHelper.CurrentlyMining = true;
-                        //if(hitID > -1)self.hitTile.Clear(hitID);
-                        clientSwapping = false;
-                        if(tile.active())self.PickTile(Player.tileTargetX, Player.tileTargetY, ushort.MaxValue);
-                        //WorldGen.KillTile(Player.tileTargetX, Player.tileTargetY);
-                        SetWall(tile2);
-                        AchievementsHelper.HandleMining();
-                        AchievementsHelper.CurrentlyMining = false;
-                    }/* else if(!tile.active()) {
+                    try {
+                        blockKillTileChestCheck = true;
+                        if (!chestSwapping) {
+                            self.PickTile(Player.tileTargetX, Player.tileTargetY, power);
+                        }
+
+                        if (chestSwapping || hitTileLastDamage > 0 || (Sets.Grass[oldType] && tile.type == Dirt)) {
+                            AchievementsHelper.CurrentlyMining = true;
+                            //if(hitID > -1)self.hitTile.Clear(hitID);
+                            if (Main.netMode == NetmodeID.MultiplayerClient) {
+                                clientSwapping = false;
+                            }
+                            if (tile.active()) {
+                                self.PickTile(Player.tileTargetX, Player.tileTargetY, ushort.MaxValue);
+                            }
+                            if (Main.netMode == NetmodeID.SinglePlayer) {
+                                clientSwapping = false;
+                            }
+                            //WorldGen.KillTile(Player.tileTargetX, Player.tileTargetY);
+                            SetWall(tile2);
+                            AchievementsHelper.HandleMining();
+                            AchievementsHelper.CurrentlyMining = false;
+                        }/* else if(!tile.active()) {
                         SetWall(tile2);
                     }*/ else {
-                        self.itemTime = 0;
-                        BlockSwapPlayer.triggerItemTime = true;
+                            self.itemTime = 0;
+                            BlockSwapPlayer.triggerItemTime = true;
+                        }
+                    } finally { 
+                        blockKillTileChestCheck = false;
+                        clientSwapping = false;
                     }
-                    clientSwapping = false;
                 }
                 self.selectedItem = selected;
             }
